@@ -90,6 +90,12 @@ Phase 6: Cloud Deployment (Production)
 
 \[ ] Clone the repository to the server.
 
+\[ ] Configure a Linux cron job to run the agent during DSE hours.
+
+
+
+\[ ] Launch the Flask web server using a production WSGI server (like Gunicorn) and tmux.
+
 ```mermaid
 erDiagram
     SECTOR ||--o{ STOCK : contains
@@ -142,9 +148,5 @@ erDiagram
     }
 ```
 
-\[ ] Configure a Linux cron job to run the agent during DSE hours.
 
-
-
-\[ ] Launch the Flask web server using a production WSGI server (like Gunicorn) and tmux.
 
