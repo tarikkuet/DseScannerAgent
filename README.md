@@ -90,7 +90,57 @@ Phase 6: Cloud Deployment (Production)
 
 \[ ] Clone the repository to the server.
 
+```mermaid
+erDiagram
+    SECTOR ||--o{ STOCK : contains
+    CATEGORY ||--o{ STOCK : categorizes
+    STOCK ||--o{ DAILY_PERFORMANCE : has
+    STOCK ||--o{ DAILY_INDICATOR : has
+    STOCK ||--o{ WATCHLIST_ITEM : appears_in
 
+    SECTOR {
+        int id PK
+        string name UK
+    }
+    CATEGORY {
+        int id PK
+        string name UK
+    }
+    STOCK {
+        int id PK
+        string ticker UK
+        string company_name
+        int sector_id FK
+        int category_id FK
+    }
+    DAILY_PERFORMANCE {
+        int id PK
+        int stock_id FK
+        date trade_date
+        float open_price
+        float high_price
+        float low_price
+        float close_price
+        int volume
+    }
+    DAILY_INDICATOR {
+        int id PK
+        int stock_id FK
+        date trade_date
+        float ema_9
+        float ema_20
+        float ma_40
+        float rsi_14
+        float atr_14
+    }
+    WATCHLIST_ITEM {
+        int id PK
+        int stock_id FK
+        string setup_type
+        text notes
+        datetime added_on
+    }
+```
 
 \[ ] Configure a Linux cron job to run the agent during DSE hours.
 
