@@ -1,0 +1,219 @@
+<!-- app/templates/index.html -->
+{% extends "base.html" %}
+
+{% block content %}
+<!-- THE HORIZONTAL FILTER BAR -->
+<div class="card shadow-sm mb-3">
+    <div class="card-body bg-light py-2">
+        <form method="GET" action="/" class="row g-2 align-items-center">
+            
+            <!-- Trading Code (Tom Select) -->
+            <div class="col-md-3">
+                <div class="d-flex align-items-center">
+                    <label class="me-2 fw-bold small text-nowrap">Trading Code:</label>
+                    <div class="flex-grow-1">
+                        <select name="ticker" id="stock-search">
+                            <option value="">[All Companies]</option>
+                            {% for s in all_stocks %}
+                                <option value="{{ s.id }}" {% if s.id|string == selected_ticker_id %}selected{% endif %}>{{ s.ticker }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Category -->
+            <div class="col-md-2">
+                <div class="d-flex align-items-center">
+                    <label class="me-2 fw-bold small text-nowrap">Cat:</label>
+                    <select name="category" class="form-select form-select-sm">
+                        <option value="">All</option>
+                        {% for cat in categories %}
+                            <option value="{{ cat.name }}" {% if cat.name == selected_cat %}selected{% endif %}>{{ cat.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+
+            <!-- Sector -->
+            <div class="col-md-3">
+                <div class="d-flex align-items-center">
+                    <label class="me-2 fw-bold small text-nowrap">Sector:</label>
+                    <select name="sector" class="form-select form-select-sm">
+                        <option value="">All</option>
+                        {% for sec in sectors %}
+                            <option value="{{ sec.name }}" {% if sec.name == selected_sector %}selected{% endif %}>{{ sec.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+
+            <!-- Watchlist & Edit Pencil -->
+            <div class="col-md-3">
+                <div class="d-flex align-items-center">
+                    <label class="me-2 fw-bold small text-nowrap">Watchlist:</label>
+                    <select name="watchlist" class="form-select form-select-sm me-1">
+                        <option value="">[All Watchlists]</option>
+                        {% for wl in watchlists %}
+                            <option value="{{ wl.id }}" {% if wl.id|string == selected_watchlist %}selected{% endif %}>{{ wl.name }}</option>
+                        {% endfor %}
+                    </select>
+                    <!-- This pencil will open our modal in the next step! -->
+                    <button type="button" class="btn btn-sm btn-outline-secondary" title="Edit Watchlists">✎</button>
+                </div>
+            </div>
+
+            <!-- Submit Filter -->
+            <div class="col-md-1 text-end">
+                <button type="submit" class="btn btn-sm btn-primary w-100">Filter</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- THE DATA TABLE -->
+<div class="card shadow-sm">
+    <div class="card-body p-0">
+        <table class="table table-hover table-striped mb-0 align-middle text-center">
+            <thead class="table-dark small">
+                <tr>
+                    <th class="text-start ps-3">Trading Code</th>
+                    <th>Cat</th>
+                    <th class="text-end">LTP</th>
+                    <th class="text-end">Change</th>
+                    <th class="text-end">Change %</th>
+                    <th class="text-end">Volume</th>
+                    <th>Sector</th>
+                </tr>
+            </thead>
+            <tbody class="small">
+                {% for stock in stocks %}
+                {% set price_data = latest_prices[stock.id] %}
+                <tr>
+                    <td class="text-start ps-3"><strong>{{ stock.ticker }}</strong></td>
+                    <td>{{ stock.category.name }}</td>
+                    
+                    {% if price_data %}
+                        <!-- LTP -->
+                        <td class="text-end fw-bold">৳ {{ price_data.close_price }}</td>
+                        
+                        <!-- Change Calculation (Uses the new YCP column we added!) -->
+                        {% if price_data.ycp %}
+                            {% set change = price_data.close_price - price_data.ycp %}
+                            {% set change_pct = (change / price_data.ycp) * 100 %}
+                            
+                            <td class="text-end {% if change > 0 %}text-success{% elif change < 0 %}text-danger{% endif %}">
+                                {{ "%.2f"|format(change) }}
+                            </td>
+                            <td class="text-end fw-bold {% if change > 0 %}text-success{% elif change < 0 %}text-danger{% endif %}">
+                                {{ "%.2f"|format(change_pct) }}%
+                            </td>
+                        {% else %}
+                            <td class="text-end text-muted">-</td>
+                            <td class="text-end text-muted">-</td>
+                        {% endif %}
+
+                        <td class="text-end">{{ "{:,}".format(price_data.volume) }}</td>
+                    {% else %}
+                        <td class="text-end text-muted">-</td>
+                        <td class="text-end text-muted">-</td>
+                        <td class="text-end text-muted">-</td>
+                        <td class="text-end text-muted">-</td>
+                    {% endif %}
+                    
+                    <td>{{ stock.sector.name }}</td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="7" class="text-center py-4 text-muted">No stocks match your filters.</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- THE MANAGE WATCHLIST MODAL -->
+<div class="modal fade" id="manageWatchlistModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header bg-secondary text-white py-2">
+                <h6 class="modal-title mb-0">Edit Watchlist</h6>
+                <button type="button" class="btn-close btn-close-white btn-sm" data-bs-dismiss="modal"></button>
+            </div>
+            
+            <form action="/manage_watchlist" method="POST">
+                <div class="modal-body bg-light">
+                    <!-- Hidden fields to tell the server what to do -->
+                    <input type="hidden" name="action" id="modal-action" value="save">
+                    <input type="hidden" name="watchlist_id" id="modal-watchlist-id" value="">
+
+                    <!-- Name -->
+                    <div class="mb-3">
+                        <label class="form-label fw-bold small mb-1">Name:</label>
+                        <input type="text" name="name" id="modal-name" class="form-control form-control-sm" placeholder="e.g., 0. Consolidation" required>
+                    </div>
+
+                    <!-- Description -->
+                    <div class="mb-3">
+                        <label class="form-label fw-bold small mb-1">Description:</label>
+                        <textarea name="description" id="modal-desc" class="form-control form-control-sm" rows="2"></textarea>
+                    </div>
+
+                    <!-- Trading Code (Multi-Select Chips) -->
+                    <div class="mb-2">
+                        <label class="form-label fw-bold small mb-1">Trading Code:</label>
+                        <!-- Notice the "multiple" attribute here! -->
+                        <select name="stocks" id="multi-stock-select" multiple placeholder="Search and add tickers...">
+                            {% for stock in all_stocks %}
+                                <option value="{{ stock.id }}">{{ stock.ticker }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+                
+                <div class="modal-footer py-2 bg-white">
+                    <button type="submit" class="btn btn-sm btn-primary" onclick="document.getElementById('modal-action').value='save'">✔️ Save</button>
+                    <button type="submit" class="btn btn-sm btn-danger" onclick="document.getElementById('modal-action').value='delete'">🗑️ Delete Watchlist</button>
+                    <button type="button" class="btn btn-sm btn-warning text-dark" data-bs-dismiss="modal">✖ Cancel</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<!-- Initialize Tom Select -->
+<!-- Initialize Scripts -->
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        // 1. Initialize the main dashboard search (Single select)
+        new TomSelect('#stock-search', {
+            maxOptions: 50,
+            placeholder: "[All Companies]"
+        });
+
+        // 2. Initialize the Watchlist Modal search (Multi-select with chips!)
+        new TomSelect('#multi-stock-select', {
+            plugins: ['remove_button'], // This creates the 'x' to delete chips
+            maxOptions: 50,
+            create: false
+        });
+
+        // 3. Wire up the Pencil Button to open the Modal
+        const pencilBtn = document.querySelector('button[title="Edit Watchlists"]');
+        if(pencilBtn) {
+            pencilBtn.addEventListener('click', function() {
+                // For now, opening the modal clears the form to create a new one.
+                // (We can add JS later to auto-fill this if editing an existing one!)
+                document.getElementById('modal-watchlist-id').value = '';
+                document.getElementById('modal-name').value = '';
+                document.getElementById('modal-desc').value = '';
+                
+                // Show the modal using Bootstrap's JS API
+                var myModal = new bootstrap.Modal(document.getElementById('manageWatchlistModal'));
+                myModal.show();
+            });
+        }
+    });
+</script>
+{% endblock %}

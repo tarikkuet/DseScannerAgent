@@ -1,0 +1,82 @@
+<!-- app/templates/watchlist.html -->
+{% extends "base.html" %}
+
+{% block content %}
+<div class="row mb-4">
+    <div class="col-12">
+        <h2 class="border-bottom pb-2">Technical Setup Watchlist</h2>
+    </div>
+</div>
+
+<!-- The Filter Form -->
+<div class="card shadow-sm mb-4">
+    <div class="card-body bg-light">
+        <form method="GET" action="/watchlist" class="row g-3 align-items-end">
+            <!-- Sector Dropdown -->
+            <div class="col-md-4">
+                <label for="sector" class="form-label fw-bold">Filter by Sector</label>
+                <select name="sector" id="sector" class="form-select">
+                    <option value="">All Sectors</option>
+                    {% for sector in sectors %}
+                        <!-- Keep the option selected if the user previously chose it -->
+                        <option value="{{ sector.name }}" {% if sector.name == selected_sector %}selected{% endif %}>
+                            {{ sector.name }}
+                        </option>
+                    {% endfor %}
+                </select>
+            </div>
+            
+            <!-- Setup Dropdown -->
+            <div class="col-md-4">
+                <label for="setup" class="form-label fw-bold">Filter by Setup</label>
+                <select name="setup" id="setup" class="form-select">
+                    <option value="">All Setups</option>
+                    {% for setup in setup_types %}
+                        <option value="{{ setup }}" {% if setup == selected_setup %}selected{% endif %}>
+                            {{ setup }}
+                        </option>
+                    {% endfor %}
+                </select>
+            </div>
+            
+            <!-- Submit and Reset Buttons -->
+            <div class="col-md-4">
+                <button type="submit" class="btn btn-primary me-2">Apply Filters</button>
+                <a href="/watchlist" class="btn btn-outline-secondary">Clear</a>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- The Results Table -->
+<div class="card shadow-sm">
+    <div class="card-body p-0">
+        <table class="table table-hover table-striped mb-0 align-middle">
+            <thead class="table-light">
+                <tr>
+                    <th>Ticker</th>
+                    <th>Sector</th>
+                    <th>Setup Type</th>
+                    <th>Technical Notes</th>
+                    <th>Added On</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for item in items %}
+                <tr>
+                    <td><strong>{{ item.stock.ticker }}</strong></td>
+                    <td><span class="badge bg-secondary">{{ item.stock.sector.name }}</span></td>
+                    <td><span class="badge bg-warning text-dark fw-bold">{{ item.setup_type }}</span></td>
+                    <td>{{ item.notes }}</td>
+                    <td class="text-muted small">{{ item.added_on.strftime('%Y-%m-%d') }}</td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="5" class="text-center py-4 text-muted">No setups match your filters.</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

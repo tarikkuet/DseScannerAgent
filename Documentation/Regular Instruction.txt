@@ -1,0 +1,19 @@
+2. Create a Virtual Environment (Crucial Step)
+Never install project libraries into your system's global Python. A virtual environment keeps this project's dependencies isolated.
+
+Bash
+# Windows
+python -m venv venv
+
+# Mac/Linux
+python3 -m venv venv
+3. Activate the Virtual Environment
+You must do this every time you open VS Code to work on this project.
+
+Bash
+# Windows
+.\venv\Scripts\activate
+
+# Mac/Linux
+source venv/bin/activate
+(You should now see (venv) at the start of your terminal prompt).
