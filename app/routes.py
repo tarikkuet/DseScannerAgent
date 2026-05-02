@@ -94,5 +94,42 @@ def register_routes(app):
             
             db.session.commit()
 
+
+    # --- NEW ROUTE: Master Data Management ---
+    # --- ROUTE: Master Data Management ---
+    @app.route('/data_management')
+    def data_management():
+        # 1. Get filter and pagination parameters from the URL
+        sec_filter = request.args.get('sector', '')
+        cat_filter = request.args.get('category', '')
+        # Default to page 1, ensure it's an integer
+        page = request.args.get('page', 1, type=int) 
+
+        # 2. Build the base query for Stocks
+        stock_query = Stock.query
+
+        # 3. Apply Filters if the user selected them
+        if sec_filter:
+            stock_query = stock_query.join(Sector).filter(Sector.name == sec_filter)
+        if cat_filter:
+            stock_query = stock_query.join(Category).filter(Category.name == cat_filter)
+
+        # 4. Paginate! Get 50 items per page. 
+        # error_out=False prevents crashing if a user types page=999 in the URL
+        paginated_stocks = stock_query.order_by(Stock.ticker).paginate(page=page, per_page=50, error_out=False)
+
+        # 5. Fetch all Sectors and Categories for the dropdowns and the other tabs
+        sectors = Sector.query.order_by(Sector.name).all()
+        categories = Category.query.order_by(Category.name).all()
+        
+        return render_template(
+            'data_management.html',
+            stocks=paginated_stocks, # We are now passing the Pagination Object, not just a list!
+            sectors=sectors,
+            categories=categories,
+            sec_filter=sec_filter,
+            cat_filter=cat_filter
+        )
+
         # Redirect back to the dashboard immediately
         return redirect(request.referrer or url_for('index'))

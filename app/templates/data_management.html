@@ -1,0 +1,175 @@
+<!-- app/templates/data_management.html -->
+{% extends "base.html" %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center border-bottom pb-2 mb-4">
+    <h2>Master Data Management</h2>
+    <!-- This button is a placeholder for now! -->
+    <button class="btn btn-sm btn-success">+ Add New Record</button>
+</div>
+
+<!-- The Tabs -->
+<ul class="nav nav-tabs mb-4" id="mdmTabs" role="tablist">
+    <li class="nav-item" role="presentation">
+        <button class="nav-link active fw-bold" data-bs-toggle="tab" data-bs-target="#stocks-tab" type="button">
+            Stocks <span class="badge bg-secondary ms-1">{{ stocks.total }}</span>
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link fw-bold" data-bs-toggle="tab" data-bs-target="#sectors-tab" type="button">
+            Sectors <span class="badge bg-secondary ms-1">{{ sectors|length }}</span>
+        </button>
+    </li>
+    <li class="nav-item" role="presentation">
+        <button class="nav-link fw-bold" data-bs-toggle="tab" data-bs-target="#categories-tab" type="button">
+            Categories <span class="badge bg-secondary ms-1">{{ categories|length }}</span>
+        </button>
+    </li>
+</ul>
+
+<!-- The Tab Content -->
+<div class="tab-content">
+    
+    <!-- STOCKS TAB -->
+    <div class="tab-pane fade show active" id="stocks-tab">
+        <div class="card shadow-sm mb-3">
+            
+            <!-- NEW: Filter Bar -->
+            <div class="card-header bg-light py-2">
+                <form method="GET" action="/data_management" class="row g-2 align-items-center">
+                    <div class="col-md-4">
+                        <select name="sector" class="form-select form-select-sm">
+                            <option value="">[All Sectors]</option>
+                            {% for sec in sectors %}
+                                <option value="{{ sec.name }}" {% if sec.name == sec_filter %}selected{% endif %}>{{ sec.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <select name="category" class="form-select form-select-sm">
+                            <option value="">[All Categories]</option>
+                            {% for cat in categories %}
+                                <option value="{{ cat.name }}" {% if cat.name == cat_filter %}selected{% endif %}>Category {{ cat.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="col-md-2">
+                        <button type="submit" class="btn btn-sm btn-primary w-100">Apply Filters</button>
+                    </div>
+                    <div class="col-md-3 text-end">
+                        <!-- Shows total items matching the filter -->
+                        <small class="text-muted fw-bold">Total Found: {{ stocks.total }}</small>
+                    </div>
+                </form>
+            </div>
+
+            <div class="card-body p-0">
+                <table class="table table-hover table-striped mb-0 text-center align-middle">
+                    <thead class="table-dark">
+                        <tr>
+                            <th class="text-start ps-3">Ticker</th>
+                            <th class="text-start">Company Name</th>
+                            <th>Sector</th>
+                            <th>Category</th>
+                            <th class="text-end pe-3">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody class="small">
+                        <!-- NEW: We now loop through stocks.items because stocks is a pagination object -->
+                        {% for stock in stocks.items %}
+                        <tr>
+                            <td class="text-start ps-3 fw-bold">{{ stock.ticker }}</td>
+                            <td class="text-start text-muted">{{ stock.company_name }}</td>
+                            <td>{{ stock.sector.name }}</td>
+                            <td><span class="badge bg-info text-dark">{{ stock.category.name }}</span></td>
+                            <td class="text-end pe-3">
+                                <button class="btn btn-sm btn-outline-primary py-0 px-2">Edit</button>
+                            </td>
+                        </tr>
+                        {% else %}
+                        <tr>
+                            <td colspan="5" class="py-4 text-muted">No stocks found for these filters.</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            
+            <!-- NEW: Pagination Controls -->
+            <div class="card-footer bg-white py-2 d-flex justify-content-between align-items-center">
+                <div>
+                    {% if stocks.has_prev %}
+                        <a href="{{ url_for('data_management', page=stocks.prev_num, sector=sec_filter, category=cat_filter) }}" class="btn btn-sm btn-outline-secondary">⬅️ Previous</a>
+                    {% else %}
+                        <button class="btn btn-sm btn-outline-secondary" disabled>⬅️ Previous</button>
+                    {% endif %}
+                </div>
+                
+                <span class="small fw-bold text-muted">Page {{ stocks.page }} of {{ stocks.pages }}</span>
+                
+                <div>
+                    {% if stocks.has_next %}
+                        <a href="{{ url_for('data_management', page=stocks.next_num, sector=sec_filter, category=cat_filter) }}" class="btn btn-sm btn-outline-secondary">Next ➡️</a>
+                    {% else %}
+                        <button class="btn btn-sm btn-outline-secondary" disabled>Next ➡️</button>
+                    {% endif %}
+                </div>
+            </div>
+            
+        </div>
+    </div>
+
+    <!-- SECTORS TAB -->
+    <div class="tab-pane fade" id="sectors-tab">
+        <div class="card shadow-sm w-50">
+            <table class="table table-hover mb-0 align-middle">
+                <thead class="table-light">
+                    <tr>
+                        <th class="ps-3">Sector Name</th>
+                        <th class="text-center">Total Stocks</th>
+                        <th class="text-end pe-3">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for sector in sectors %}
+                    <tr>
+                        <td class="ps-3 fw-bold">{{ sector.name }}</td>
+                        <td class="text-center"><span class="badge bg-secondary">{{ sector.stocks|length }}</span></td>
+                        <td class="text-end pe-3">
+                            <button class="btn btn-sm btn-outline-primary py-0 px-2">Edit</button>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- CATEGORIES TAB -->
+    <div class="tab-pane fade" id="categories-tab">
+        <div class="card shadow-sm w-50">
+            <table class="table table-hover mb-0 align-middle text-center">
+                <thead class="table-light">
+                    <tr>
+                        <th>Category</th>
+                        <th>Total Stocks</th>
+                        <th class="text-end pe-3">Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for cat in categories %}
+                    <tr>
+                        <td class="fw-bold fs-5 text-primary">{{ cat.name }}</td>
+                        <td><span class="badge bg-secondary">{{ cat.stocks|length }}</span></td>
+                        <td class="text-end pe-3">
+                            <button class="btn btn-sm btn-outline-primary py-0 px-2">Edit</button>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+</div>
+{% endblock %}
