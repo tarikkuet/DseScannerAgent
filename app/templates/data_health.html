@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Data Health & Reconciliation</title>
+    <!-- Include Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        .loading-spinner {
+            display: inline-block;
+            width: 1rem;
+            height: 1rem;
+            border: 2px solid rgba(0,0,0,.1);
+            border-radius: 50%;
+            border-top-color: currentColor;
+            animation: spin 1s ease-in-out infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
+</head>
+<body class="bg-light">
+
+<!-- Navbar Placeholder (You can integrate this into your main layout later) -->
+<nav class="navbar navbar-dark bg-dark mb-4">
+    <div class="container">
+        <span class="navbar-brand mb-0 h1">DSE Scanner Admin</span>
+        <a href="/data_management" class="btn btn-outline-light btn-sm">Back to Master Data</a>
+    </div>
+</nav>
+
+<div class="container">
+    <div class="row">
+        <div class="col-12">
+            <div class="card shadow-sm">
+                <div class="card-header bg-white py-3 d-flex justify-content-between align-items-center">
+                    <h5 class="mb-0 text-primary">Data Reconciliation Engine</h5>
+                    <span class="badge bg-secondary" id="status-badge">Awaiting Scan...</span>
+                </div>
+                
+                <!-- Controls -->
+                <div class="card-body border-bottom bg-light">
+                    <form id="scan-form" class="row g-3 align-items-end">
+                        <div class="col-md-4">
+                            <label class="form-label small text-muted fw-bold">Start Date</label>
+                            <input type="date" class="form-control" id="start-date" required>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label small text-muted fw-bold">End Date</label>
+                            <input type="date" class="form-control" id="end-date" required>
+                        </div>
+                        <div class="col-md-4">
+                            <button type="submit" class="btn btn-primary w-100" id="scan-btn">
+                                🔍 Scan for Missing Data
+                            </button>
+                        </div>
+                    </form>
+                </div>
+
+                <!-- Results List -->
+                <div class="card-body p-0">
+                    <ul class="list-group list-group-flush" id="results-list">
+                        <li class="list-group-item text-center text-muted py-4">
+                            Select a date range and click Scan to analyze database health.
+                        </li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // 1. Set default dates (Last 90 days)
+    const today = new Date();
+    const ninetyDaysAgo = new Date();
+    ninetyDaysAgo.setDate(today.getDate() - 90);
+    
+    document.getElementById('end-date').value = today.toISOString().split('T')[0];
+    document.getElementById('start-date').value = ninetyDaysAgo.toISOString().split('T')[0];
+
+    // 2. Handle the "Scan" Button Click
+    document.getElementById('scan-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        
+        const btn = document.getElementById('scan-btn');
+        const list = document.getElementById('results-list');
+        const badge = document.getElementById('status-badge');
+        
+        const startDate = document.getElementById('start-date').value;
+        const endDate = document.getElementById('end-date').value;
+
+        // UI Loading State
+        btn.disabled = true;
+        btn.innerHTML = '<span class="loading-spinner me-2"></span>Scanning...';
+        list.innerHTML = '<li class="list-group-item text-center py-4"><span class="loading-spinner"></span> Analyzing database...</li>';
+        
+        try {
+            // Call our new API!
+            const response = await fetch(`/api/check_gaps?start_date=${startDate}&end_date=${endDate}`);
+            const data = await response.json();
+            
+            if (data.total_missing === 0) {
+                badge.className = "badge bg-success";
+                badge.innerText = "100% Healthy";
+                list.innerHTML = '<li class="list-group-item text-center text-success py-4 fw-bold">🎉 No gaps found! Database is perfectly continuous for this range.</li>';
+            } else {
+                badge.className = "badge bg-warning text-dark";
+                badge.innerText = `${data.total_missing} Days Missing`;
+                
+                // Clear the list and render the missing dates
+                list.innerHTML = '';
+                data.missing_dates.forEach(dateStr => {
+                    const li = document.createElement('li');
+                    li.className = "list-group-item d-flex justify-content-between align-items-center py-3";
+                    
+                    // Format the date to look nice (e.g., "Monday, April 15, 2026")
+                    const prettyDate = new Date(dateStr).toLocaleDateString('en-US', { weekday: 'short', year: 'numeric', month: 'long', day: 'numeric' });
+                    
+                    li.innerHTML = `
+                        <div>
+                            <span class="fw-bold text-dark">${prettyDate}</span>
+                            <small class="d-block text-muted">System Date: ${dateStr}</small>
+                        </div>
+                        <button class="btn btn-sm btn-outline-danger sync-btn" data-date="${dateStr}">
+                            ⬇️ Fetch Data
+                        </button>
+                    `;
+                    list.appendChild(li);
+                });
+                
+                // Attach click listeners to all the new "Fetch Data" buttons
+                attachSyncListeners();
+            }
+        } catch (err) {
+            list.innerHTML = `<li class="list-group-item text-center text-danger py-4">Error connecting to server. Is Flask running?</li>`;
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = '🔍 Scan for Missing Data';
+        }
+    });
+
+    // 3. Handle the individual "Fetch Data" Buttons
+    function attachSyncListeners() {
+        const buttons = document.querySelectorAll('.sync-btn');
+        buttons.forEach(btn => {
+            btn.addEventListener('click', async () => {
+                const targetDate = btn.getAttribute('data-date');
+                
+                // UI Loading State for the specific row
+                btn.disabled = true;
+                btn.className = "btn btn-sm btn-warning";
+                btn.innerHTML = '<span class="loading-spinner me-1"></span>Fetching...';
+                
+                try {
+                    // Call our POST API to trigger the scrape
+                    const response = await fetch('/api/sync_day', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ date: targetDate })
+                    });
+                    
+                    const result = await response.json();
+                    
+                    // Update the row based on the result
+                    const li = btn.closest('li');
+                    if (result.status === 'success') {
+                        li.className = "list-group-item bg-success bg-opacity-10 py-3";
+                        li.innerHTML = `<div class="fw-bold text-success w-100 text-center">✅ Data loaded successfully for ${targetDate}</div>`;
+                    } else if (result.status === 'closed') {
+                        li.className = "list-group-item bg-secondary bg-opacity-10 py-3";
+                        li.innerHTML = `<div class="fw-bold text-muted w-100 text-center">⏩ Market Closed / Holiday on ${targetDate}</div>`;
+                    } else {
+                        btn.disabled = false;
+                        btn.className = "btn btn-sm btn-danger";
+                        btn.innerHTML = `❌ Error: Retry`;
+                        alert(result.message);
+                    }
+                } catch (err) {
+                    btn.disabled = false;
+                    btn.className = "btn btn-sm btn-danger";
+                    btn.innerHTML = `❌ Network Error`;
+                }
+            });
+        });
+    }
+</script>
+</body>
+</html>

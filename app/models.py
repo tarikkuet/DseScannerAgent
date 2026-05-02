@@ -51,7 +51,7 @@ class DailyPerformance(db.Model):
     low_price = db.Column(db.Float, nullable=False)
     close_price = db.Column(db.Float, nullable=False)
     
-    # NEW: Yesterday's Close Price (required for Change and Change %)
+    # Yesterday's Close Price (required for Change and Change %)
     ycp = db.Column(db.Float, nullable=True) 
     
     volume = db.Column(db.Integer, nullable=False)
@@ -72,3 +72,11 @@ class DailyIndicator(db.Model):
     __table_args__ = (
         db.UniqueConstraint('stock_id', 'calc_date', name='_ind_stock_date_uc'),
     )
+
+
+class IntradayTick(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    stock_id = db.Column(db.Integer, db.ForeignKey('stock.id'), nullable=False)
+    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+    current_price = db.Column(db.Float, nullable=False)
+    volume = db.Column(db.Integer, default=0)

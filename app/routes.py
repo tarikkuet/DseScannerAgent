@@ -1,5 +1,6 @@
 # app/routes.py
-from flask import render_template, request,redirect, url_for
+from datetime import datetime, timedelta
+from flask import render_template, request,redirect, url_for, jsonify
 from app.models import db, Sector, Category, Stock, DailyPerformance, WatchlistGroup
 
 
@@ -130,6 +131,72 @@ def register_routes(app):
             sec_filter=sec_filter,
             cat_filter=cat_filter
         )
+    # --- ROUTE: Data Health UI Page ---
+    @app.route('/data_health')
+    def data_health():
+        return render_template('data_health.html')
 
+    # --- API: Check for missing dates ---
+    @app.route('/api/check_gaps', methods=['GET'])
+    def api_check_gaps():
+        # Get start/end dates from the URL, or default to a 3-month window
+        end_date_str = request.args.get('end_date', datetime.today().strftime('%Y-%m-%d'))
+        start_date_str = request.args.get('start_date', (datetime.today() - timedelta(days=90)).strftime('%Y-%m-%d'))
+        
+        try:
+            end_date = datetime.strptime(end_date_str, '%Y-%m-%d').date()
+            start_date = datetime.strptime(start_date_str, '%Y-%m-%d').date()
+        except ValueError:
+            return jsonify({'error': 'Invalid date format. Use YYYY-MM-DD'}), 400
+
+        # Ask SQLite for all unique dates it currently holds
+        existing_dates_query = db.session.query(DailyPerformance.trade_date).filter(
+            DailyPerformance.trade_date >= start_date,
+            DailyPerformance.trade_date <= end_date
+        ).distinct().all()
+        
+        saved_dates = {row[0] for row in existing_dates_query}
+        missing_dates = []
+        
+        current = end_date
+        while current >= start_date:
+            # Skip Friday (4) and Saturday (5)
+            if current.weekday() not in [4, 5]: 
+                if current not in saved_dates:
+                    missing_dates.append(current.strftime('%Y-%m-%d'))
+            current -= timedelta(days=1)
+            
+        return jsonify({
+            'start_date': start_date_str,
+            'end_date': end_date_str,
+            'total_missing': len(missing_dates),
+            'missing_dates': missing_dates # This is a list of strings: ['2026-04-15', '2026-04-12']
+        })
+
+    # --- API: Trigger a single day sync ---
+    @app.route('/api/sync_day', methods=['POST'])
+    def api_sync_day():
+        data = request.get_json()
+        target_date = data.get('date')
+        
+        if not target_date:
+            return jsonify({'success': False, 'message': 'No date provided'}), 400
+            
+        print(f"UI requested surgical sync for: {target_date}")
+        
+        # LAZY IMPORT: We import it right here to break the circle!
+        from seed_dse_archive import scrape_dse_archive_for_date
+
+        # Call our scraper function!
+        status = scrape_dse_archive_for_date(target_date)
+        
+        if status == "SUCCESS":
+            return jsonify({'success': True, 'status': 'success', 'message': f'Data loaded for {target_date}'})
+        elif status == "CLOSED":
+            return jsonify({'success': True, 'status': 'closed', 'message': f'Market was closed on {target_date} (Holiday)'})
+        else:
+            return jsonify({'success': False, 'status': 'error', 'message': f'Network error fetching {target_date}'}), 500
+        
+        
         # Redirect back to the dashboard immediately
         return redirect(request.referrer or url_for('index'))
