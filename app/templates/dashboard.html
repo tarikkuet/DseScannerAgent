@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DSE Market Dashboard</title>
+    <!-- Bootstrap 5 -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- TradingView Lightweight Charts -->
+    <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
+    <style>
+        body { background-color: #f8f9fa; }
+        #tv-chart { 
+            width: 100%; 
+            height: 600px; 
+            background-color: white; 
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+    </style>
+</head>
+<body>
+
+<nav class="navbar navbar-dark bg-dark mb-4">
+    <div class="container-fluid px-4">
+        <span class="navbar-brand mb-0 h1">DSE Scanner Dashboard</span>
+        <div>
+            <a href="/" class="btn btn-outline-light btn-sm me-2">🏠 Home</a>
+            <a href="/intraday_imports" class="btn btn-outline-warning btn-sm me-2">⚡ Intraday Hub</a>
+            <a href="/data_management" class="btn btn-outline-light btn-sm me-2">Master Data</a>
+            <a href="/data_health" class="btn btn-outline-info btn-sm">Data Health</a>
+        </div>
+    </div>
+</nav>
+
+<div class="container-fluid px-4">
+    <div class="row mb-3 align-items-end">
+        <div class="col-md-4">
+            <label class="form-label fw-bold text-muted small text-uppercase">Select Instrument</label>
+            <select class="form-select form-select-lg shadow-sm" id="stock-selector">
+                <option value="" selected disabled>Choose a ticker...</option>
+                {% for stock in stocks %}
+                    <option value="{{ stock.ticker }}">{{ stock.ticker }} - {{ stock.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        
+        <div class="col-md-4">
+            <label class="form-label fw-bold text-muted small text-uppercase">Timeframe</label>
+            <div class="btn-group w-100 shadow-sm" role="group">
+                <button type="button" class="btn btn-outline-primary tf-btn" onclick="setTimeframe('15min', this)">15m</button>
+                <button type="button" class="btn btn-outline-primary tf-btn" onclick="setTimeframe('30min', this)">30m</button>
+                <button type="button" class="btn btn-outline-primary tf-btn" onclick="setTimeframe('1h', this)">1H</button>
+                <button type="button" class="btn btn-primary tf-btn" onclick="setTimeframe('D', this)">D</button>
+                <button type="button" class="btn btn-outline-primary tf-btn" onclick="setTimeframe('W', this)">W</button>
+            </div>
+        </div>
+        
+        <div class="col-md-4 d-flex justify-content-end align-items-end">
+            <h3 id="chart-title" class="mb-1 text-primary me-3"></h3>
+            <a href="/screener" class="btn btn-outline-danger btn-sm mb-1 rounded-circle shadow-sm" 
+               title="Close Chart and Return to Screener" 
+               style="width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; text-decoration: none;">
+                <span class="fw-bold">✕</span>
+            </a>
+        </div>
+        
+    </div>
+
+    <div class="row">
+        <div class="col-12">
+            <!-- The Chart Canvas -->
+            <div id="tv-chart"></div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // 1. Initialize the Chart Layout
+    const chartContainer = document.getElementById('tv-chart');
+    const chart = LightweightCharts.createChart(chartContainer, {
+        layout: {
+            background: { color: '#ffffff' },
+            textColor: '#333',
+        },
+        grid: {
+            vertLines: { color: '#f0f3fa' },
+            horzLines: { color: '#f0f3fa' },
+        },
+        crosshair: {
+            mode: LightweightCharts.CrosshairMode.Normal,
+        },
+        rightPriceScale: {
+            borderColor: '#cccccc',
+        },
+        timeScale: {
+            borderColor: '#cccccc',
+            timeVisible: true,
+        },
+    });
+
+    // 2. Add Series (Candles on top, Volume on bottom)
+    const candleSeries = chart.addCandlestickSeries({
+        upColor: '#26a69a',
+        downColor: '#ef5350',
+        borderVisible: false,
+        wickUpColor: '#26a69a',
+        wickDownColor: '#ef5350'
+    });
+
+    const volumeSeries = chart.addHistogramSeries({
+        priceFormat: { type: 'volume' },
+        priceScaleId: '', 
+    });
+
+    // --- NEW: Intraday Line Series ---
+    const intradaySeries = chart.addLineSeries({
+        color: '#2962FF', // A sharp, professional blue
+        lineWidth: 2,
+        crosshairMarkerVisible: true,
+        lastValueVisible: true,
+        priceLineVisible: true,
+    });
+
+    // Push the volume down to the bottom 20% of the chart
+    chart.priceScale('').applyOptions({
+        scaleMargins: { top: 0.8, bottom: 0 },
+    });
+
+    let liveUpdateTimer = null;
+    let currentTimeframe = 'D'; // Default to Daily
+
+    // NEW: Handle Timeframe Button Clicks
+    window.setTimeframe = function(tf, btnElement) {
+        currentTimeframe = tf;
+        
+        // Visually update the buttons
+        document.querySelectorAll('.tf-btn').forEach(btn => {
+            btn.classList.remove('btn-primary');
+            btn.classList.add('btn-outline-primary');
+        });
+        btnElement.classList.remove('btn-outline-primary');
+        btnElement.classList.add('btn-primary');
+
+        // If a stock is already selected, simulate a dropdown change to reload the chart
+        const ticker = document.getElementById('stock-selector').value;
+        if (ticker) {
+            document.getElementById('stock-selector').dispatchEvent(new Event('change'));
+        }
+    };
+    // 3. Handle Dropdown Selection
+    document.getElementById('stock-selector').addEventListener('change', async (e) => {
+        const ticker = e.target.value;
+        if (!ticker) return;
+
+        document.getElementById('chart-title').innerText = "Loading data...";
+        if (liveUpdateTimer) clearInterval(liveUpdateTimer);
+
+        // A single function to fetch and draw the chart based on the current timeframe
+        const loadChartData = async () => {
+            try {
+                // Notice the new ?tf= parameter!
+                const response = await fetch(`/api/chart_data/${ticker}?tf=${currentTimeframe}`);
+                const data = await response.json();
+
+                if (data.candlestick.length === 0) {
+                    document.getElementById('chart-title').innerText = `${ticker}: No data for this timeframe`;
+                    candleSeries.setData([]);
+                    volumeSeries.setData([]);
+                    return;
+                }
+
+                document.getElementById('chart-title').innerText = `${data.ticker} (${currentTimeframe})`;
+                
+                // Because Pandas did all the heavy lifting, we just feed the data directly to the candles!
+                candleSeries.setData(data.candlestick);
+                volumeSeries.setData(data.volume);
+                
+            } catch (error) {
+                console.error("Error loading chart data", error);
+                document.getElementById('chart-title').innerText = "Error loading data.";
+            }
+        };
+
+        // 1. Initial Load
+        await loadChartData();
+        chart.timeScale().fitContent();
+
+        // 2. Restart the Live Daemon (Only poll every 60s if we are on an intraday timeframe)
+        if (currentTimeframe !== 'D' && currentTimeframe !== 'W') {
+            liveUpdateTimer = setInterval(() => {
+                console.log(`Fetching live updates for ${ticker} (${currentTimeframe})...`);
+                loadChartData();
+            }, 60000);
+        }
+    });
+
+    // Handle Window Resize to keep chart responsive
+    window.addEventListener('resize', () => {
+        chart.applyOptions({ width: chartContainer.clientWidth });
+    });
+
+    // --- NEW: Auto-Load Ticker from URL ---
+    window.addEventListener('DOMContentLoaded', () => {
+        // 1. Check the URL for a '?ticker=XYZ' parameter
+        const urlParams = new URLSearchParams(window.location.search);
+        const requestedTicker = urlParams.get('ticker');
+
+        if (requestedTicker) {
+            const dropdown = document.getElementById('stock-selector');
+            
+            // 2. Loop through the dropdown options to make sure the ticker actually exists
+            for (let i = 0; i < dropdown.options.length; i++) {
+                if (dropdown.options[i].value === requestedTicker) {
+                    // 3. Select it!
+                    dropdown.selectedIndex = i;
+                    
+                    // 4. Trigger the 'change' event so the chart automatically fetches the data
+                    dropdown.dispatchEvent(new Event('change'));
+                    break;
+                }
+            }
+        }
+    });
+
+</script>
+</body>
+</html>

@@ -12,6 +12,7 @@ You must do this every time you open VS Code to work on this project.
 
 Bash
 # Windows
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 .\venv\Scripts\activate
 
 # Mac/Linux

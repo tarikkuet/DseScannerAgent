@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DSE Market Screener</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        .positive { color: #26a69a; font-weight: bold; }
+        .negative { color: #ef5350; font-weight: bold; }
+        .neutral { color: #d24d4d; }
+        .table-sticky th { position: sticky; top: 0; background-color: #f8f9fa; z-index: 1; }
+        .table-wrapper { height: 65vh; overflow-y: auto; border: 1px solid #dee2e6; border-radius: 8px;}
+        /* Make headers look clickable */
+        .sortable { cursor: pointer; user-select: none; transition: background-color 0.2s; }
+        .sortable:hover { background-color: #e9ecef !important; }
+        .sort-icon { font-size: 0.8em; margin-left: 5px; color: #0d6efd; }
+    </style>
+</head>
+<body class="bg-light">
+
+<nav class="navbar navbar-dark bg-dark mb-4">
+    <div class="container-fluid px-4">
+        <span class="navbar-brand mb-0 h1">DSE Market Screener</span>
+        <div>
+            <a href="/" class="btn btn-outline-light btn-sm me-2">🏠 Home</a>
+            <a href="/dashboard" class="btn btn-primary btn-sm me-2">📈 Chart</a>
+            <!-- NEW: Fixed Link to Master Data / Watchlists -->
+            <a href="/data_management" class="btn btn-outline-light btn-sm me-2">🗄️ Master Data</a>
+        </div>
+    </div>
+</nav>
+
+<div class="container-fluid px-4">
+    <div class="row mb-3 bg-white p-3 rounded shadow-sm align-items-end">
+        <div class="col-md-2">
+            <label class="form-label fw-bold text-muted small">Date</label>
+            <input type="date" id="date-filter" class="form-control" value="{{ latest_date }}">
+        </div>
+        <div class="col-md-2">
+            <label class="form-label fw-bold text-muted small">Search</label>
+            <input type="text" id="search-filter" class="form-control" placeholder="Ticker...">
+        </div>
+        <div class="col-md-2">
+            <label class="form-label fw-bold text-muted small">Sector</label>
+            <select id="sector-filter" class="form-select">
+                <option value="ALL">All Sectors</option>
+                {% for sector in sectors %}
+                    <option value="{{ sector.name }}">{{ sector.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-2">
+            <label class="form-label fw-bold text-muted small">Category</label>
+            <select id="category-filter" class="form-select">
+                <option value="ALL">All Cat</option>
+                {% for cat in categories %}
+                    <option value="{{ cat.name }}">{{ cat.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <!-- NEW: Watchlist Dropdown -->
+        <!-- SMART WATCHLIST FILTER & EDIT BUTTON -->
+        <div class="col-md-3">
+            <label class="form-label fw-bold text-muted small">Watchlist</label>
+            <div class="input-group">
+                <select id="watchlist-filter" class="form-select">
+                    <option value="ALL">All Watchlists</option>
+                    {% for w in watchlists %}
+                        <!-- We stash the ID and Description in data attributes so the Edit modal can read them! -->
+                        <option value="{{ w.name }}" data-id="{{ w.id }}" data-desc="{{ w.description | default('', true) | replace('\n', ' ') | escape }}">{{ w.name }}</option>
+                    {% endfor %}
+                </select>
+                <!-- UPDATED BUTTON: Bulletproof icon and text -->
+                <button class="btn btn-outline-primary fw-bold" type="button" onclick="handleWatchlistAction()">
+                    ✏️ Edit
+                </button>
+            </div>
+        </div>
+        
+        <!-- Make sure your row-count column next to it is now col-md-1 so everything fits 12 columns perfectly -->
+        <div class="col-md-1 text-end align-self-center">
+            <span id="row-count" class="text-muted small fw-bold">Loading...</span>
+        </div>
+        
+    </div>
+
+    <div class="row">
+        <div class="col-12">
+            <div class="table-wrapper bg-white shadow-sm mb-3">
+                <table class="table table-hover mb-0 table-sticky">
+                    <thead>
+                        <tr>
+                            <th class="text-center text-muted">SL No</th>
+                            <th class="sortable" onclick="handleSort('ticker')">Ticker <span id="sort-ticker" class="sort-icon"></span></th>
+                            <th class="sortable" onclick="handleSort('sector')">Sector <span id="sort-sector" class="sort-icon"></span></th>
+                            <th class="sortable" onclick="handleSort('category')">Cat <span id="sort-category" class="sort-icon"></span></th>
+                            <th class="sortable text-end" onclick="handleSort('price')">Last Price <span id="sort-price" class="sort-icon"></span></th>
+                            <th class="sortable text-end" onclick="handleSort('change')">Change <span id="sort-change" class="sort-icon"></span></th>
+                            <th class="sortable text-end" onclick="handleSort('pct_change')">% Change <span id="sort-pct_change" class="sort-icon">↓</span></th>
+                            <th class="sortable text-end" onclick="handleSort('pct_change_5d')">5D % Chg <span id="sort-pct_change_5d" class="sort-icon"></span></th>
+                            
+                            <th class="sortable text-end" onclick="handleSort('volume')">Volume <span id="sort-volume" class="sort-icon"></span></th>
+                            <th class="sortable text-end" onclick="handleSort('avg_vol_10d')">10d Avg Vol <span id="sort-avg_vol_10d" class="sort-icon"></span></th>
+                            <th class="sortable text-end" onclick="handleSort('vol_pct_change')">Vol % Chg <span id="sort-vol_pct_change" class="sort-icon"></span></th>
+                        </tr>
+                    </thead>
+                    <tbody id="screener-body">
+                        </tbody>
+                </table>
+            </div>
+
+            <div class="d-flex justify-content-between align-items-center bg-white p-3 rounded shadow-sm">
+                <div>
+                    <button class="btn btn-outline-primary btn-sm me-2" onclick="changePage(-1)" id="btn-prev">Previous</button>
+                    <button class="btn btn-outline-primary btn-sm" onclick="changePage(1)" id="btn-next">Next</button>
+                </div>
+                <div class="text-muted small fw-bold" id="page-info">
+                    Page 1 of 1
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ============================================== -->
+<!-- OMNI-MODAL: CREATE / EDIT / DELETE             -->
+<!-- ============================================== -->
+<div class="modal fade" id="watchlistModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content shadow-lg border-0">
+      <div class="modal-header bg-light border-bottom-0">
+        <h5 class="modal-title fw-bold text-dark" id="modalTitle">Create Watchlist</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" data-dismiss="modal"></button>
+      </div>
+      
+      <form method="POST" action="/manage_watchlist" id="watchlistForm">
+          <div class="modal-body">
+              <input type="hidden" name="action" id="actionInput" value="save">
+              <input type="hidden" name="watchlist_id" id="watchlistIdInput" value="">
+              
+              <div class="mb-3">
+                  <label class="form-label fw-bold text-muted small">Name:</label>
+                  <input type="text" class="form-control" name="name" id="nameInput" placeholder="e.g. Breakout Candidates" required>
+              </div>
+              
+              <div class="mb-3">
+                  <label class="form-label fw-bold text-muted small">Description:</label>
+                  <textarea class="form-control" name="description" id="descInput" rows="2"></textarea>
+              </div>
+
+              <div class="mb-3">
+                  <label class="form-label fw-bold text-muted small">Trading Code:</label>
+                  <div class="position-relative">
+                      <!-- Unique ID to prevent collisions -->
+                      <input type="text" class="form-control" id="modalStockSearchInput" placeholder="Search ticker..." autocomplete="off">
+                      
+                      <!-- Unique ID to prevent collisions -->
+                      <div id="modalStockDropdownMenu" class="position-absolute w-100 shadow bg-white border rounded" style="display: none; max-height: 200px; overflow-y: auto; top: 100%; left: 0; z-index: 9999;">
+                          <div class="list-group list-group-flush">
+                              {% for stock in stocks %}
+                              <a class="list-group-item list-group-item-action stock-dropdown-item py-2" href="#" 
+                                 onclick="addStockPill({{ stock.id }}, '{{ stock.ticker }}', event)">
+                                 <span class="fw-bold">{{ stock.ticker }}</span> 
+                                 <span class="text-muted small ms-2 float-end">{{ stock.sector.name }}</span>
+                              </a>
+                              {% endfor %}
+                          </div>
+                      </div>
+                  </div>
+              </div>
+
+              <div class="p-2" id="selectedStocksArea" style="min-height: 80px; max-height: 200px; overflow-y: auto; border: 1px dashed #ccc; border-radius: 5px;"></div>
+              <div id="hiddenStockInputs"></div>
+          </div>
+          
+          <div class="modal-footer bg-light border-top-0 d-flex justify-content-between">
+            <button type="submit" class="btn btn-primary fw-bold px-4" onclick="document.getElementById('actionInput').value='save'">
+                <i class="fas fa-check"></i> Save
+            </button>
+            <div>
+                <button type="submit" class="btn btn-danger fw-bold px-3 me-2" id="deleteBtn" style="display:none;" 
+                        onclick="document.getElementById('actionInput').value='delete'; return confirm('Are you sure you want to permanently delete this watchlist?');">
+                    <i class="fas fa-trash"></i> Delete
+                </button>
+                <button type="button" class="btn btn-warning text-dark fw-bold px-4" data-bs-dismiss="modal" data-dismiss="modal">
+                    <i class="fas fa-times"></i> Cancel
+                </button>
+            </div>
+          </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+
+<script>
+
+    // ==========================================
+    // GLOBAL STATE VARIABLES (Restored!)
+    // ==========================================
+    let masterData = [];
+    let sortCol = 'pct_change'; // Default sort (matches the arrow in your screenshot)
+    let sortAsc = false;        // False means descending (highest to lowest)
+    let currentPage = 1;
+    let rowsPerPage = 50;       // You can adjust this to whatever you prefer
+    // ==========================================
+    // 1. SMART WATCHLIST MODAL LOGIC
+    // ==========================================
+    function handleWatchlistAction() {
+        const select = document.getElementById('watchlist-filter');
+        const selectedOption = select.options[select.selectedIndex];
+        
+        if (selectedOption.value === "ALL") {
+            openModal(); // Create New
+        } else {
+            const id = selectedOption.getAttribute('data-id');
+            const desc = selectedOption.getAttribute('data-desc');
+            openModal(id, selectedOption.value, desc); // Edit Existing
+        }
+    }
+
+    async function openModal(id = null, name = '', desc = '') {
+        document.getElementById('modalTitle').innerText = id ? 'Edit Watchlist' : 'Create new Watchlist';
+        document.getElementById('watchlistIdInput').value = id || '';
+        document.getElementById('nameInput').value = name;
+        document.getElementById('descInput').value = desc !== 'None' ? desc : '';
+        document.getElementById('selectedStocksArea').innerHTML = '';
+        document.getElementById('hiddenStockInputs').innerHTML = '';
+        document.getElementById('deleteBtn').style.display = id ? 'inline-block' : 'none';
+
+        if (id) {
+            document.getElementById('selectedStocksArea').innerHTML = '<span class="text-muted small">Loading stocks...</span>';
+            try {
+                const response = await fetch(`/api/watchlist/${id}`);
+                const stocks = await response.json();
+                document.getElementById('selectedStocksArea').innerHTML = ''; 
+                stocks.forEach(stock => addStockPill(stock.id, stock.ticker)); 
+            } catch (error) {
+                document.getElementById('selectedStocksArea').innerHTML = '<span class="text-danger small">Error loading stocks.</span>';
+            }
+        }
+
+        if (typeof bootstrap !== 'undefined') {
+            const modalEl = document.getElementById('watchlistModal');
+            const watchlistModal = bootstrap.Modal.getInstance(modalEl) || new bootstrap.Modal(modalEl);
+            watchlistModal.show();
+        } else if (typeof $ !== 'undefined') {
+            $('#watchlistModal').modal('show');
+        } else {
+            alert("Error: Missing Bootstrap Javascript on this page.");
+        }
+    }
+
+    // ==========================================
+    // 2. LIVE SEARCH LOGIC (Unique Variables)
+    // ==========================================
+    const modalSearchBox = document.getElementById('modalStockSearchInput');
+    const modalDropdownList = document.getElementById('modalStockDropdownMenu');
+
+    modalSearchBox.addEventListener('click', function() {
+        modalDropdownList.style.display = 'block';
+    });
+    modalSearchBox.addEventListener('focus', function() {
+        modalDropdownList.style.display = 'block';
+    });
+    modalSearchBox.addEventListener('blur', function() {
+        setTimeout(() => { modalDropdownList.style.display = 'none'; }, 200);
+    });
+    modalSearchBox.addEventListener('input', function(e) {
+        modalDropdownList.style.display = 'block'; 
+        
+        const term = e.target.value.toUpperCase().trim();
+        document.querySelectorAll('.stock-dropdown-item').forEach(item => {
+            const text = item.innerText.toUpperCase();
+            if(text.includes(term)) {
+                item.style.setProperty('display', 'block', 'important');
+            } else {
+                item.style.setProperty('display', 'none', 'important');
+            }
+        });
+    });
+
+    // ==========================================
+    // 3. STOCK PILL LOGIC
+    // ==========================================
+    function addStockPill(stockId, ticker, event = null) {
+        if (event) event.preventDefault(); 
+        
+        // Prevent duplicates
+        if (document.getElementById(`pill-${stockId}`)) {
+            document.getElementById('modalStockSearchInput').value = ''; 
+            return; 
+        }
+
+        // A. Draw the pill
+        const pillArea = document.getElementById('selectedStocksArea');
+        const pill = document.createElement('span');
+        pill.id = `pill-${stockId}`;
+        pill.className = "badge border text-dark bg-white me-2 mb-2 p-2 fs-6 shadow-sm";
+        pill.style.borderColor = "#0d6efd"; 
+        pill.innerHTML = `${ticker} <span class="ms-2 text-danger" style="cursor:pointer; font-weight:900;" onclick="removeStockPill(${stockId})">&times;</span>`;
+        pillArea.appendChild(pill);
+
+        // B. Add hidden input for the database
+        const hiddenArea = document.getElementById('hiddenStockInputs');
+        const hiddenInput = document.createElement('input');
+        hiddenInput.type = "hidden";
+        hiddenInput.name = "stocks"; 
+        hiddenInput.value = stockId;
+        hiddenInput.id = `input-${stockId}`;
+        hiddenArea.appendChild(hiddenInput);
+
+        // C. Clean up search box
+        document.getElementById('modalStockSearchInput').value = '';
+        document.querySelectorAll('.stock-dropdown-item').forEach(item => {
+            item.style.setProperty('display', 'block', 'important');
+        });
+    }
+
+    function removeStockPill(stockId) {
+        if (document.getElementById(`pill-${stockId}`)) document.getElementById(`pill-${stockId}`).remove();
+        if (document.getElementById(`input-${stockId}`)) document.getElementById(`input-${stockId}`).remove();
+    }
+
+    // ==========================================
+    // 4. PAGE INITIALIZATION
+    // ==========================================
+
+    // 4. Render the table based on Filters, Sort, and Page
+    function renderTable() {
+        const tbody = document.getElementById('screener-body');
+        const searchTerm = document.getElementById('search-filter').value.toUpperCase();
+        const sectorFilter = document.getElementById('sector-filter').value;
+        const categoryFilter = document.getElementById('category-filter').value;
+        // --- STEP A: Filter the data ---
+        const watchlistFilter = document.getElementById('watchlist-filter').value; // NEW
+        // --- STEP A: Filter the data ---
+        let filteredData = masterData.filter(row => {
+            if (searchTerm && !row.ticker.includes(searchTerm)) return false;
+            if (sectorFilter !== 'ALL' && row.sector !== sectorFilter) return false;
+            if (categoryFilter !== 'ALL' && row.category !== categoryFilter) return false;
+            // NEW: Check if the stock's watchlist array includes the selected watchlist
+            if (watchlistFilter !== 'ALL' && (!row.watchlists || !row.watchlists.includes(watchlistFilter))) return false;
+            
+            return true;
+        });
+
+        // --- STEP B: Sort the filtered data ---
+        filteredData.sort((a, b) => {
+            let valA = a[sortCol];
+            let valB = b[sortCol];
+
+            if (typeof valA === 'string') valA = valA.toUpperCase();
+            if (typeof valB === 'string') valB = valB.toUpperCase();
+
+            if (valA < valB) return sortAsc ? -1 : 1;
+            if (valA > valB) return sortAsc ? 1 : -1;
+            return 0;
+        });
+
+        // --- STEP C: Paginate the sorted data ---
+        const totalPages = Math.ceil(filteredData.length / rowsPerPage) || 1;
+        if (currentPage > totalPages) currentPage = totalPages;
+        if (currentPage < 1) currentPage = 1;
+
+        const startIndex = (currentPage - 1) * rowsPerPage;
+        const endIndex = startIndex + rowsPerPage;
+        const paginatedData = filteredData.slice(startIndex, endIndex);
+
+        // --- STEP D: Render HTML ---
+        tbody.innerHTML = '';
+        paginatedData.forEach((row, index) => {
+            // Price Colors (1D)
+            let colorClass = 'neutral';
+            let sign = '';
+            if (row.pct_change > 0) { colorClass = 'positive'; sign = '+'; }
+            else if (row.pct_change < 0) { colorClass = 'negative'; }
+
+            // Price Colors (5D)
+            let colorClass5d = 'neutral';
+            let sign5d = '';
+            if (row.pct_change_5d > 0) { colorClass5d = 'positive'; sign5d = '+'; }
+            else if (row.pct_change_5d < 0) { colorClass5d = 'negative'; }
+
+            // Volume Colors
+            let volColorClass = 'neutral';
+            let volSign = '';
+            if (row.vol_pct_change > 0) { volColorClass = 'positive'; volSign = '+'; }
+            else if (row.vol_pct_change < 0) { volColorClass = 'negative'; }
+
+            const serialNo = startIndex + index + 1;
+
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td class="text-center text-muted small fw-bold">${serialNo}</td>
+                <td class="fw-bold text-primary">
+                    <a href="/dashboard?ticker=${row.ticker}" style="text-decoration:none;">${row.ticker}</a>
+                </td>
+                <td class="text-muted small">${row.sector}</td>
+                <td><span class="badge bg-secondary">${row.category}</span></td>
+                <td class="text-end fw-bold">${row.price.toFixed(2)}</td>
+                <td class="text-end ${colorClass}">${sign}${row.change.toFixed(2)}</td>
+                <td class="text-end ${colorClass}">${sign}${row.pct_change.toFixed(2)}%</td>
+                <td class="text-end ${colorClass5d}">${sign5d}${row.pct_change_5d.toFixed(2)}%</td>
+                <td class="text-end text-muted">${row.volume.toLocaleString()}</td>
+                <td class="text-end text-muted">${row.avg_vol_10d.toLocaleString()}</td>
+                <td class="text-end ${volColorClass} fw-bold">${volSign}${row.vol_pct_change.toFixed(2)}%</td>
+            `;
+            tbody.appendChild(tr);
+        });
+
+    }    
+
+    async function loadScreenerData() {
+        try {
+            document.getElementById('row-count').innerText = "Fetching market data...";
+            const targetDate = document.getElementById('date-filter').value;
+            
+            // Pass the target date to our new Time Machine API
+            const response = await fetch(`/api/screener_data?date=${targetDate}`);
+            masterData = await response.json();
+            renderTable(); 
+        } catch (error) {
+            console.error("Error fetching screener data", error);
+            document.getElementById('screener-body').innerHTML = '<tr><td colspan="11" class="text-center text-danger">Failed to load market data.</td></tr>';
+        }
+        }
+
+    // ==========================================
+    // 5. MAIN PAGE FILTER EVENT LISTENERS
+    // ==========================================
+    
+    // Update table as you type in the Search box
+    document.getElementById('search-filter').addEventListener('input', function() {
+        currentPage = 1; // Reset to page 1 when searching
+        renderTable();
+    });
+
+    // Update table when Sector, Category, or Watchlist dropdowns change
+    document.getElementById('sector-filter').addEventListener('change', function() {
+        currentPage = 1;
+        renderTable();
+    });
+    
+    document.getElementById('category-filter').addEventListener('change', function() {
+        currentPage = 1;
+        renderTable();
+    });
+    
+    document.getElementById('watchlist-filter').addEventListener('change', function() {
+        currentPage = 1;
+        renderTable();
+    });
+
+    // Fetch completely new data if the Date changes!
+    document.getElementById('date-filter').addEventListener('change', loadScreenerData);
+    
+        window.onload = loadScreenerData;
+   
+</script>
+
+<!-- Bootstrap JS Bundle -->
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+
+</body>
+</html>

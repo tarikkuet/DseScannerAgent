@@ -1,82 +1,240 @@
-<!-- app/templates/watchlist.html -->
-{% extends "base.html" %}
+{% extends 'base.html' %}
 
 {% block content %}
-<div class="row mb-4">
-    <div class="col-12">
-        <h2 class="border-bottom pb-2">Technical Setup Watchlist</h2>
+<div class="container mt-4">
+    <div class="row mb-4 align-items-center">
+        <div class="col-md-8">
+            <h2><span class="text-primary">📋</span> Watchlist Management</h2>
+            <p class="text-muted">Create and manage custom groups to monitor your favorite technical setups.</p>
+        </div>
+        <div class="col-md-4 text-end">
+            <!-- Button triggers openModal in CREATE mode -->
+            <button class="btn btn-primary fw-bold px-4 shadow-sm" onclick="openModal()">
+                + Create New Watchlist
+            </button>
+        </div>
+    </div>
+
+    <!-- Flash Messages -->
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for category, message in messages %}
+          <div class="alert alert-{{ category }} alert-dismissible fade show shadow-sm" role="alert">
+            {{ message }}
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+          </div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+
+    <!-- CLEANED UP WATCHLIST GRID -->
+    <div class="row g-4">
+        {% for wl in watchlists %}
+        <div class="col-md-4">
+            <div class="card h-100 shadow-sm border-0 bg-white" style="border-top: 4px solid #0d6efd !important;">
+                <div class="card-body">
+                    <div class="d-flex justify-content-between align-items-start mb-2">
+                        <h5 class="card-title text-dark fw-bold mb-0">{{ wl.name }}</h5>
+                        <span class="badge bg-primary rounded-pill">{{ wl.stocks.count() }}</span>
+                    </div>
+                    <p class="card-text text-muted small" style="min-height: 40px;">
+                        {{ wl.description or 'No description provided.' }}
+                    </p>
+                    <hr>
+                    <div class="d-grid">
+                        <!-- Button triggers openModal in EDIT mode -->
+                        <button class="btn btn-sm btn-outline-dark fw-bold" 
+                                onclick="openModal({{ wl.id }}, '{{ wl.name }}', '{{ wl.description | replace('\n', ' ') | escape }}')">
+                            <i class="fas fa-edit"></i> Edit Watchlist
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% else %}
+        <div class="col-12 text-center py-5">
+            <h4 class="text-muted">You haven't created any watchlists yet.</h4>
+            <p class="text-muted">Click the Create button above to get started!</p>
+        </div>
+        {% endfor %}
     </div>
 </div>
 
-<!-- The Filter Form -->
-<div class="card shadow-sm mb-4">
-    <div class="card-body bg-light">
-        <form method="GET" action="/watchlist" class="row g-3 align-items-end">
-            <!-- Sector Dropdown -->
-            <div class="col-md-4">
-                <label for="sector" class="form-label fw-bold">Filter by Sector</label>
-                <select name="sector" id="sector" class="form-select">
-                    <option value="">All Sectors</option>
-                    {% for sector in sectors %}
-                        <!-- Keep the option selected if the user previously chose it -->
-                        <option value="{{ sector.name }}" {% if sector.name == selected_sector %}selected{% endif %}>
-                            {{ sector.name }}
-                        </option>
-                    {% endfor %}
-                </select>
-            </div>
+<!-- ============================================== -->
+<!-- OMNI-MODAL: CREATE / EDIT / DELETE             -->
+<!-- ============================================== -->
+<div class="modal fade" id="watchlistModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content shadow-lg border-0">
+      <div class="modal-header bg-light border-bottom-0">
+        <h5 class="modal-title fw-bold text-dark" id="modalTitle">Create Watchlist</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      
+      <form method="POST" action="/manage_watchlist" id="watchlistForm">
+          <div class="modal-body">
+              <!-- Hidden Inputs for Backend Logic -->
+              <input type="hidden" name="action" id="actionInput" value="save">
+              <input type="hidden" name="watchlist_id" id="watchlistIdInput" value="">
+              
+              <div class="mb-3">
+                  <label class="form-label fw-bold text-muted small">Name:</label>
+                  <input type="text" class="form-control" name="name" id="nameInput" placeholder="e.g. Breakout Candidates" required>
+              </div>
+              
+              <div class="mb-3">
+                  <label class="form-label fw-bold text-muted small">Description:</label>
+                  <textarea class="form-control" name="description" id="descInput" rows="2"></textarea>
+              </div>
+
+              <div class="mb-3">
+                  <label class="form-label fw-bold text-muted small">Trading Code:</label>
+                  <div class="dropdown">
+                      <input type="text" class="form-control" id="stockSearchInput" placeholder="Search ticker..." data-bs-toggle="dropdown" autocomplete="off">
+                      <ul class="dropdown-menu w-100 shadow-sm" style="max-height: 200px; overflow-y: auto;">
+                          {% for stock in stocks %}
+                          <li>
+                              <a class="dropdown-item stock-dropdown-item py-2" href="#" 
+                                 onclick="addStockPill({{ stock.id }}, '{{ stock.ticker }}', event)">
+                                 <span class="fw-bold">{{ stock.ticker }}</span> 
+                                 <span class="text-muted small ms-2 float-end">{{ stock.sector.name }}</span>
+                              </a>
+                          </li>
+                          {% endfor %}
+                      </ul>
+                  </div>
+              </div>
+
+              <!-- Selected Stocks Pills -->
+              <div class="p-2" id="selectedStocksArea" style="min-height: 80px; max-height: 200px; overflow-y: auto; border: 1px dashed #ccc; border-radius: 5px;">
+                  <!-- Pills go here -->
+              </div>
+              <div id="hiddenStockInputs"></div>
+
+          </div>
+          
+          <!-- FOOTER MATCHING YOUR SCREENSHOT: Save | Delete | Cancel -->
+          <div class="modal-footer bg-light border-top-0 d-flex justify-content-between">
+            <button type="submit" class="btn btn-primary fw-bold px-4" onclick="document.getElementById('actionInput').value='save'">
+                <i class="fas fa-check"></i> Save
+            </button>
             
-            <!-- Setup Dropdown -->
-            <div class="col-md-4">
-                <label for="setup" class="form-label fw-bold">Filter by Setup</label>
-                <select name="setup" id="setup" class="form-select">
-                    <option value="">All Setups</option>
-                    {% for setup in setup_types %}
-                        <option value="{{ setup }}" {% if setup == selected_setup %}selected{% endif %}>
-                            {{ setup }}
-                        </option>
-                    {% endfor %}
-                </select>
+            <div>
+                <!-- Delete Button (Hidden during Create mode) -->
+                <button type="submit" class="btn btn-danger fw-bold px-3 me-2" id="deleteBtn" style="display:none;" 
+                        onclick="document.getElementById('actionInput').value='delete'; return confirm('Are you sure you want to permanently delete this watchlist?');">
+                    <i class="fas fa-trash"></i> Delete
+                </button>
+                
+                <button type="button" class="btn btn-warning text-dark fw-bold px-4" data-bs-dismiss="modal">
+                    <i class="fas fa-times"></i> Cancel
+                </button>
             </div>
-            
-            <!-- Submit and Reset Buttons -->
-            <div class="col-md-4">
-                <button type="submit" class="btn btn-primary me-2">Apply Filters</button>
-                <a href="/watchlist" class="btn btn-outline-secondary">Clear</a>
-            </div>
-        </form>
+          </div>
+      </form>
     </div>
+  </div>
 </div>
 
-<!-- The Results Table -->
-<div class="card shadow-sm">
-    <div class="card-body p-0">
-        <table class="table table-hover table-striped mb-0 align-middle">
-            <thead class="table-light">
-                <tr>
-                    <th>Ticker</th>
-                    <th>Sector</th>
-                    <th>Setup Type</th>
-                    <th>Technical Notes</th>
-                    <th>Added On</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for item in items %}
-                <tr>
-                    <td><strong>{{ item.stock.ticker }}</strong></td>
-                    <td><span class="badge bg-secondary">{{ item.stock.sector.name }}</span></td>
-                    <td><span class="badge bg-warning text-dark fw-bold">{{ item.setup_type }}</span></td>
-                    <td>{{ item.notes }}</td>
-                    <td class="text-muted small">{{ item.added_on.strftime('%Y-%m-%d') }}</td>
-                </tr>
-                {% else %}
-                <tr>
-                    <td colspan="5" class="text-center py-4 text-muted">No setups match your filters.</td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
-</div>
+<script>
+    
+
+    // --- MODAL CONTROLLER (Handles both Create and Edit states) ---
+    async function openModal(id = null, name = '', desc = '') {
+        // 1. Safely grab the modal instance (Fixes the Create button bug!)
+        const modalEl = document.getElementById('watchlistModal');
+        const watchlistModal = bootstrap.Modal.getInstance(modalEl) || new bootstrap.Modal(modalEl);
+
+        // 2. Reset everything first
+        document.getElementById('modalTitle').innerText = id ? 'Edit Watchlist' : 'Create new Watchlist';
+        document.getElementById('watchlistIdInput').value = id || '';
+        document.getElementById('nameInput').value = name;
+        document.getElementById('descInput').value = desc !== 'None' ? desc : '';
+        document.getElementById('selectedStocksArea').innerHTML = '';
+        document.getElementById('hiddenStockInputs').innerHTML = '';
+        
+        // 3. Show/Hide the Delete button
+        document.getElementById('deleteBtn').style.display = id ? 'inline-block' : 'none';
+
+        // 4. If Editing, fetch existing stocks from API
+        if (id) {
+            document.getElementById('selectedStocksArea').innerHTML = '<span class="text-muted small">Loading stocks...</span>';
+            try {
+                const response = await fetch(`/api/watchlist/${id}`);
+                const stocks = await response.json();
+                
+                document.getElementById('selectedStocksArea').innerHTML = ''; // Clear loading text
+                stocks.forEach(stock => {
+                    addStockPill(stock.id, stock.ticker); // Add the pills!
+                });
+            } catch (error) {
+                console.error("Failed to load stocks", error);
+                document.getElementById('selectedStocksArea').innerHTML = '<span class="text-danger small">Error loading stocks.</span>';
+            }
+        }
+
+        // 5. Finally, open the Modal
+        watchlistModal.show();
+    }
+
+    // --- SEARCH FILTER (Bulletproof Override) ---
+    document.getElementById('stockSearchInput').addEventListener('input', function(e) {
+        const term = e.target.value.toUpperCase().trim();
+        const items = document.querySelectorAll('.stock-dropdown-item');
+        
+        items.forEach(item => {
+            const text = item.innerText.toUpperCase();
+            if(text.includes(term)) {
+                item.parentElement.style.setProperty('display', 'block', 'important');
+            } else {
+                item.parentElement.style.setProperty('display', 'none', 'important');
+            }
+        });
+    });
+
+    // --- STOCK PILL LOGIC ---
+    function addStockPill(stockId, ticker, event = null) {
+        if (event) event.preventDefault(); 
+        
+        if (document.getElementById(`pill-${stockId}`)) {
+            document.getElementById('stockSearchInput').value = ''; 
+            return; 
+        }
+
+        // A. Visual Pill (Styled like your screenshot)
+        const pillArea = document.getElementById('selectedStocksArea');
+        const pill = document.createElement('span');
+        pill.id = `pill-${stockId}`;
+        pill.className = "badge border text-dark bg-white me-2 mb-2 p-2 fs-6 shadow-sm";
+        pill.style.borderColor = "#0d6efd"; // Nice blue border
+        pill.innerHTML = `
+            ${ticker} 
+            <span class="ms-2 text-danger" style="cursor:pointer; font-weight:900;" onclick="removeStockPill(${stockId})">&times;</span>
+        `;
+        pillArea.appendChild(pill);
+
+        // B. Hidden Input for Backend
+        const hiddenArea = document.getElementById('hiddenStockInputs');
+        const hiddenInput = document.createElement('input');
+        hiddenInput.type = "hidden";
+        hiddenInput.name = "stocks"; 
+        hiddenInput.value = stockId;
+        hiddenInput.id = `input-${stockId}`;
+        hiddenArea.appendChild(hiddenInput);
+
+        // C. Cleanup search
+        document.getElementById('stockSearchInput').value = '';
+        document.querySelectorAll('.stock-dropdown-item').forEach(item => {
+            item.parentElement.style.setProperty('display', 'block', 'important');
+        });
+    }
+
+    function removeStockPill(stockId) {
+        const pill = document.getElementById(`pill-${stockId}`);
+        if (pill) pill.remove();
+        
+        const hiddenInput = document.getElementById(`input-${stockId}`);
+        if (hiddenInput) hiddenInput.remove();
+    }
+</script>
 {% endblock %}

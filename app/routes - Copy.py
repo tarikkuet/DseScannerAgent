@@ -1,7 +1,6 @@
 # app/routes.py
 from datetime import datetime, timedelta
-from flask import render_template, request, redirect, url_for,flash, jsonify
-#from flask import render_template, request,redirect, url_for, jsonify
+from flask import render_template, request,redirect, url_for, jsonify
 from app.models import db, Sector, Category, Stock, DailyPerformance, IntradayTick,WatchlistGroup
 import os
 import re
@@ -9,7 +8,6 @@ import shutil  # <-- Add this! It lets Python move files around
 import pandas as pd
 from collections import defaultdict
 from sqlalchemy import func
-from app.models import Sector, Category, WatchlistGroup
 
 def register_routes(app):
     @app.route('/')
@@ -101,9 +99,7 @@ def register_routes(app):
                     wl.stocks.append(stock)
             
             db.session.commit()
-        # THE MISSING PIECE: Send the user back to the watchlist page!
-        #return redirect('/watchlist')
-        return redirect(request.referrer or '/watchlist')
+
 
     # --- NEW ROUTE: Master Data Management ---
     # --- ROUTE: Master Data Management ---
@@ -131,8 +127,7 @@ def register_routes(app):
         # 5. Fetch all Sectors and Categories for the dropdowns and the other tabs
         sectors = Sector.query.order_by(Sector.name).all()
         categories = Category.query.order_by(Category.name).all()
-        #watchlists = WatchlistGroup.query.all()
-
+        
         return render_template(
             'data_management.html',
             stocks=paginated_stocks, # We are now passing the Pagination Object, not just a list!
@@ -400,53 +395,42 @@ def register_routes(app):
     # --- ROUTE: Market Screener UI ---
     @app.route('/screener')
     def screener():
+        # Fetch sectors and categories to populate the filter dropdowns
         sectors = Sector.query.order_by(Sector.name).all()
         categories = Category.query.order_by(Category.name).all()
-        watchlists = WatchlistGroup.query.order_by(WatchlistGroup.name).all() # NEW: Fetch Watchlists
-        stocks = Stock.query.order_by(Stock.ticker).all() # NEW: Fetch all stocks for the modal
+        return render_template('screener.html', sectors=sectors, categories=categories)
 
-        # Find the absolute latest trading date in the database to use as the default
-        latest_date_obj = db.session.query(func.max(DailyPerformance.trade_date)).scalar()
-        latest_date = ""
-        if latest_date_obj:
-            latest_date = latest_date_obj if isinstance(latest_date_obj, str) else latest_date_obj.strftime('%Y-%m-%d')
-            
-        # NEW: Pass watchlists to the template
-        return render_template('screener.html', sectors=sectors, categories=categories, watchlists=watchlists, latest_date=latest_date)
-
-    # --- API: Fetch All Stocks for Screener (OPTIMIZED + DATE FILTER) ---
+    # --- API: Fetch All Stocks for Screener ---
+    # --- API: Fetch All Stocks for Screener (OPTIMIZED) ---
     @app.route('/api/screener_data')
     def api_screener_data():
         stocks = Stock.query.all()
-        target_date = request.args.get('date') # NEW: Grab the requested date
         
-        # 1. Base query for dates
-        date_query = DailyPerformance.query.with_entities(DailyPerformance.trade_date).distinct()
-        
-        # If a specific date is requested, only look at that date and backward
-        if target_date:
-            date_query = date_query.filter(DailyPerformance.trade_date <= target_date)
+        # 1. Find the exact last 11 trading dates for the whole market (1 Query)
+        # 1. Find the exact last 11 trading dates for the whole market (1 Query)
+        recent_dates_query = DailyPerformance.query.with_entities(DailyPerformance.trade_date)\
+            .distinct()\
+            .order_by(DailyPerformance.trade_date.desc())\
+            .limit(11).all()
             
-        # Get the exact last 11 trading dates leading up to our target
-        recent_dates_query = date_query.order_by(DailyPerformance.trade_date.desc()).limit(11).all()
         recent_dates = [d[0] for d in recent_dates_query]
 
         if not recent_dates:
             return jsonify([])
 
-        # 2. Fetch ALL performance data for those specific dates in bulk
+        # 2. Fetch ALL performance data for those specific dates in bulk (1 Query)
         bulk_performance = DailyPerformance.query\
             .filter(DailyPerformance.trade_date.in_(recent_dates))\
             .order_by(DailyPerformance.stock_id, DailyPerformance.trade_date.desc()).all()
 
-        # 3. Group the data by stock_id in RAM
+        # 3. Group the data by stock_id in RAM (Lightning fast)
         perf_by_stock = defaultdict(list)
         for p in bulk_performance:
             perf_by_stock[p.stock_id].append(p)
 
         screener_data = []
 
-        # 4. Do the math using our memory dictionary
+        # 4. Do the math using our memory dictionary instead of hitting the DB
         for stock in stocks:
             recent_data = perf_by_stock.get(stock.id, [])
             
@@ -455,18 +439,18 @@ def register_routes(app):
                 
             latest = recent_data[0]
             
-            # Calculate Price Change
+            # Calculate Price Change (Latest Day)
             change = 0
             pct_change = 0
             if latest.ycp and latest.ycp > 0:
                 change = latest.close_price - latest.ycp
                 pct_change = (change / latest.ycp) * 100
 
-            # Calculate 5-Day % Change (Excluding Latest Day)
+            # NEW: Calculate 5-Day % Change (Excluding Latest Day)
             pct_change_5d = 0
             if len(recent_data) > 6:
-                end_price = recent_data[1].close_price
-                start_price = recent_data[6].close_price 
+                end_price = recent_data[1].close_price     # Yesterday's Close
+                start_price = recent_data[6].close_price   # Close 6 days ago (Baseline)
                 if start_price > 0:
                     pct_change_5d = ((end_price - start_price) / start_price) * 100
 
@@ -486,36 +470,16 @@ def register_routes(app):
                 'ticker': stock.ticker,
                 'sector': stock.sector.name if stock.sector else 'Uncategorized',
                 'category': stock.category.name if stock.category else '-',
-                # NEW: Attach a list of watchlist names this stock belongs to
-                'watchlists': [w.name for w in stock.watchlists] if hasattr(stock, 'watchlists') else [],
                 'price': round(latest.close_price, 2),
                 'change': round(change, 2),
                 'pct_change': round(pct_change, 2),
-                'pct_change_5d': round(pct_change_5d, 2),
+                'pct_change_5d': round(pct_change_5d, 2), # NEW DATAPOINT
                 'volume': latest.volume,
                 'avg_vol_10d': int(avg_vol_10d),
                 'vol_pct_change': round(vol_pct_change, 2)
             })
 
         return jsonify(screener_data)
-    # --- ROUTE: Manage Watchlists ---
-    # --- ROUTE: Display the Watchlist Page ---
-    @app.route('/watchlist', methods=['GET'])
-    def watchlist_page():
-        # Fetch all watchlists and all stocks so your HTML has the data for the dropdowns
-        all_watchlists = WatchlistGroup.query.order_by(WatchlistGroup.name).all()
-        all_stocks = Stock.query.order_by(Stock.ticker).all()
-        
-        return render_template('watchlist.html', watchlists=all_watchlists, stocks=all_stocks)
-    
-    
-    # --- API: Fetch Stocks for a Specific Watchlist ---
-    @app.route('/api/watchlist/<int:watchlist_id>')
-    def api_watchlist(watchlist_id):
-        wl = WatchlistGroup.query.get_or_404(watchlist_id)
-        # UPDATED: Return both the ID and the Ticker so the frontend can draw the pills!
-        stock_data = [{'id': stock.id, 'ticker': stock.ticker} for stock in wl.stocks]
-        return jsonify(stock_data)
     
         # Redirect back to the dashboard immediately
         return redirect(request.referrer or url_for('index'))

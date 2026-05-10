@@ -4,10 +4,19 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-center border-bottom pb-2 mb-4">
     <h2>Master Data Management</h2>
-    <!-- This button is a placeholder for now! -->
-    <a href="/data_health" class="btn btn-outline-success shadow-sm">⚕️ Data Health & Sync
-    </a>
-    <button class="btn btn-sm btn-success">+ Add New Record</button>
+    <div>
+        <a href="/dashboard" class="btn btn-primary shadow-sm me-2">
+            📈 Market Dashboard
+        </a>
+        <!-- NEW INTRADAY HUB BUTTON -->
+        <a href="/intraday_imports" class="btn btn-outline-warning shadow-sm me-2">
+            ⚡ Intraday Hub
+        </a>
+        <a href="/data_health" class="btn btn-outline-success shadow-sm">
+            ⚕️ Data Health & Sync
+        </a>
+    </div>
+    <!--<button class="btn btn-sm btn-success">+ Add New Record</button> -->
 </div>
 
 <!-- The Tabs -->
